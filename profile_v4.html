@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recording Room</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <link href="assets/vendor/voice_recording/record_css_v2.css" rel="stylesheet">
+    <!-- <link href="assets/vendor/voice_recording/chatroom.css" rel="stylesheet"> -->
+</head>
+<body>
+
+      <!-- ***** Preloader Start ***** -->
+  <div id="js-preloader" class="js-preloader">
+    <div class="preloader-inner">
+      <span class="dot"></span>
+      <div class="dots">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+  </div>
+  <!-- ***** Preloader End ***** -->
+
+    <div class="profile-container">
+        <div class="profile-card">
+            <div class="profile-info">
+                <div class="profile-name">홍길동 학생</div>
+                <!-- <div class="profile-signup-date">- 첫 수강일 : 24년 1월 2일</div> -->
+            <div class="profile-image">
+                <img src="assets/custom/images/student1.png" alt="Profile Picture">
+            </div>
+            <button type="submit" class ="btn btn-outline-secondary btn-sm" id = "signout">로그아웃</button>
+        </div>
+            <div class="profile-actions d-flex justify-content-evenly">
+                <button class="profile-action-button listen" type="button" id ="showRecordCardButton">녹음하기</button>
+                <button class="profile-action-button check" type="button" id = "checkRecordingButton">녹음확인</button>
+                <button class="profile-action-button chat" id ="chatButton" type="button">채팅하기</button>
+            </div>
+        </div>
+        <div class="new-card" id = "record-card">
+            <div class = "row">
+                <div class="microphone-icon">
+                    <!-- Replace with actual microphone image -->
+                    <button id="startButton">
+                        <img src="assets/custom/images/recording_before.svg" id="microphoneIcon" alt="Start Recording">
+                    </button>
+                    <!-- Stop Recording Button -->
+                    <button id="stopButton" style="display:none;"> <!-- Initially hidden -->
+                        <img src="assets/custom/images/recording_stop.svg" id="stopMicrophoneIcon" alt="Stop Recording">
+                    </button>
+                    <div class = "row">
+                        <span id="recordingTime">00:00</span>
+                    </div> 
+                </div>
+                <div class = "audio-section">
+                    <audio id="audio" controls></audio>
+                
+                </div>
+            
+            </div>
+            <div class="performance-grid">
+                <!-- Create the grid here -->
+            </div>
+            <div class="row feedback-textarea">
+                <label for="feedback"> <br>테스트 명</label>
+                <textarea rows="3" id = "testname"></textarea>
+            </div><br>
+            <button class="btn btn-primary" id = 'submitButton'>제출하기</button>
+        </div>
+
+        <div class="new-card" id="history-card" style="display: none;">
+            <div class="row">
+                    <div class="user-profile">
+                        <ul class = "chat-list">
+                            <li class = "list-group-item">
+                                <div class = "col-md-6">
+                                    <h6>audio file name</h6>
+                                    <h5>saved time</h6>
+                                </div>
+                                <div class = "col-md-6">
+                                    <h6>audio file name</h6>
+                                    <h5>saved time</h6>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+            </div>
+        </div>
+        
+        <div class="new-card" id="chat-card" style="display: none;">
+            <div class="row">
+                <button class="btn chat-button">
+                    <div class="user-profile col-md-4">
+                        <img src="assets/custom/images/teacher.png" alt="Mentor Eunji">
+                        <p>Mentor Eunji</p>
+                    </div>
+                    <div class="user-profile col-md-8">
+
+                        <p>messages...</p>
+                    </div>
+                </button>
+            </div>
+            
+            <div class="row">
+                <button class="btn chat-button">
+                    <div class="user-profile col-md-4">
+                        <img src="assets/custom/images/teacher.png" alt="Mentor Eunji">
+                        <p>Mentor xxx</p>
+                    </div>
+                    <div class="user-profile col-md-8">
+
+                        <p>messages...</p>
+                    </div>
+                </button>
+            </div>
+        </div>
+        
+    </div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script type = "module">
+
+                // Page loading animation
+        $(window).on('load', function() {
+
+        $('#js-preloader').addClass('loaded');
+
+        });
+
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.2/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.7.2/firebase-analytics.js";
+        import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.7.2/firebase-auth.js";
+        import { getFirestore, collection ,addDoc, query, where, getDocs, orderBy} from "https://www.gstatic.com/firebasejs/10.7.2/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.2/firebase-storage.js";
+
+        const firebaseConfig = {
+          apiKey: "AIzaSyCk3mcDZ7Y-h751yQIKCG5_0rIfTOXpV8k",
+          authDomain: "hanmacin-c5742.firebaseapp.com",
+          projectId: "hanmacin-c5742",
+          storageBucket: "hanmacin-c5742.appspot.com",
+          messagingSenderId: "120371757586",
+          appId: "1:120371757586:web:f211cba03ab133c5090ecb",
+          measurementId: "G-GP4XD4B74Y"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        const db = getFirestore(app);
+        const storage = getStorage(app);
+
+        const auth = getAuth();
+
+        document.getElementById('signout').addEventListener('click', (event) => {
+            event.preventDefault();
+
+            // Sign out from Firebase
+            signOut(auth).then(() => {
+                console.log('User signed out');
+
+                // Clear user information from sessionStorage or localStorage
+                localStorage.clear(); // This clears everything in sessionStorage
+                // localStorage.clear(); // Uncomment this if you're using localStorage
+
+                // Redirect to a different page after sign out, e.g., to the home page or sign-in page
+                window.location.href = 'index.html'; // Replace with your desired redirection
+
+            }).catch((error) => {
+                // Handle errors here
+                console.log('Error signing out: ', error);
+            });
+        });
+
+        auth.onAuthStateChanged((user)=>{
+            if (user) {
+                console.log(user.uid)
+                console.log(user.displayName)
+            }
+        });
+
+        async function uploadAudio(blob) {
+            const userUid = auth.currentUser.uid;
+            if (!userUid) {
+                console.error('User is not logged in.');
+                return; // Stop the function if we don't have a user UID
+            }
+            // Create a unique file name for the audio
+            const audioFileName = `recordings/${new Date().toISOString()}.mp3`; // or .wav depending on the format
+            const storageRef = ref(storage, audioFileName);
+            
+            try {
+                const snapshot = await uploadBytes(storageRef, blob);
+                console.log('Uploaded a blob or file!', snapshot);
+
+                // Get the URL of the uploaded file
+                const url = await getDownloadURL(snapshot.ref);
+                const fileName = document.getElementById('testname').value;
+                console.log('File available at', url);
+                console.log('filename:', fileName);
+
+                // Save the URL to Firestore
+                await saveRecordingUrlToFirestore(url, userUid, fileName);
+            } catch (error) {
+                console.error("Error uploading file:", error);
+            }
+        }
+
+        async function saveRecordingUrlToFirestore(url, userUid, fileName) {
+            // Create a new document in Firestore in a 'recordings' collection
+            const recordingsRef = collection(db, "recordings");
+            const docRef = await addDoc(recordingsRef, {
+                url: url,
+                userUid: userUid, // Add the user UID to the document
+                timestamp: new Date(),
+                testName: fileName
+            });
+            console.log("Document written with ID: ", docRef.id);
+        }
+
+        async function fetchUserRecordingsAndUpdateUI(userUid) {
+            const q = query(collection(db, "recordings"), where("userUid", "==", userUid), orderBy("timestamp", "desc"));
+            console.log(q)
+            const querySnapshot = await getDocs(q);
+            
+            const chatList  = document.querySelector("#history-card .chat-list");
+            chatList.innerHTML = ''; // Clear previous recordings
+            
+            querySnapshot.forEach((doc) => {
+                // For each recording, create an element to display it
+                const recording = doc.data();
+                const audioUrl = recording.url;
+                const fileName = recording.testName;
+                const savedTime = recording.timestamp ? recording.timestamp.toDate().toLocaleString() : 'Unknown time'; 
+
+                const listItem = document.createElement("li");
+                listItem.className = "list-group-item";
+                
+                // Add audio file name and saved time
+                listItem.innerHTML = `<h3>${fileName}</h3><h6>${savedTime}</h6>`;
+
+                // Create audio element
+                const audioElement = document.createElement("audio");
+                audioElement.setAttribute("src", audioUrl);
+                audioElement.setAttribute("controls", "controls");
+
+                // Append audio element to the list item
+                listItem.appendChild(audioElement);
+
+                // Append the list item to the chat list
+                chatList.appendChild(listItem);
+                /*
+                // Create audio element
+                const audioElement = document.createElement("audio");
+                audioElement.setAttribute("src", audioUrl);
+                audioElement.setAttribute("controls", "controls");
+
+                // Create a container div for styling or additional info
+                const audioContainer = document.createElement("div");
+                audioContainer.className = "user-profile col-md-12";
+                audioContainer.appendChild(audioElement);
+
+                // Append to the history card
+                historyCard.appendChild(audioContainer);*/
+            });
+
+            if (querySnapshot.empty) {
+                // Handle case where no recordings are found
+                chatList.innerHTML = '<li class="list-group-item">No recordings found.</li>';
+            }
+        }  
+
+        document.getElementById('checkRecordingButton').addEventListener('click', function() {
+            const userUid = auth.currentUser.uid; // Make sure the user is logged in
+            fetchUserRecordingsAndUpdateUI(userUid);
+            document.getElementById('history-card').style.display = 'block';
+            // Now handle showing the history card as needed
+        });
+
+        // document.getElementById('checkRecordingButton').addEventListener('click', async () => {
+        //     const userUid = auth.currentUser.uid; // Get the current user's UID
+        //     await fetchUserRecordings(userUid);
+        // });
+        /*******************recorder********************/
+        document.addEventListener("DOMContentLoaded", function() {
+            // Variables to store the media recorder and audio data
+            let mediaRecorder;
+            let audioChunks = [];
+            let recordingDuration = 0;
+            let recordingInterval;
+            let audioBlob;
+
+            // Get the start and stop recording buttons
+            const startButton = document.getElementById("startButton");
+            const stopButton = document.getElementById("stopButton");
+            const audioElement = document.getElementById("audio");
+            const recordingTime = document.getElementById("recordingTime");
+
+            // Start recording
+            startButton.addEventListener("click", function() {
+                startButton.style.display = 'none';
+                stopButton.style.display = 'inline-block';
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        mediaRecorder = new MediaRecorder(stream);
+                        mediaRecorder.start();
+
+                        recordingDuration = 0;
+                        updateRecordingTime(0);
+
+                        recordingInterval = setInterval(() => {
+                            recordingDuration++;
+                            updateRecordingTime(recordingDuration);
+                        }, 1000);
+
+                        mediaRecorder.addEventListener("dataavailable", event => {
+                            audioChunks.push(event.data);
+                        });
+                        mediaRecorder.addEventListener("stop", () => {
+                            audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                            const audioUrl = URL.createObjectURL(audioBlob);
+                            audioElement.src = audioUrl;
+                            audioChunks = [];
+                        });
+                })
+                    .catch(error => console.error("Error accessing media devices:", error));
+            });
+
+            function uploadRecording() {
+                if (audioBlob) {
+                    uploadAudio(audioBlob);
+                    alert("제출되었습니다!")
+                    const userUid = auth.currentUser.uid;
+                    fetchUserRecordingsAndUpdateUI(userUid);
+                    document.getElementById('history-card').style.display = 'block';
+                    document.getElementById('record-card').style.display = 'none';
+                } else {
+                    console.log('No recording available to upload.');
+                }
+            }
+
+            stopButton.addEventListener("click", function() {
+                mediaRecorder.stop();
+                clearInterval(recordingInterval)
+                startButton.style.display = 'inline-block';
+                stopButton.style.display = 'none';
+                recordingDuration = 0;
+                updateRecordingTime(recordingDuration);
+            });
+
+            const submitButton = document.getElementById('submitButton');
+            submitButton.removeEventListener('click', uploadRecording);
+            submitButton.addEventListener('click', uploadRecording);
+
+            function updateRecordingTime(seconds) {
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                recordingTime.textContent = `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+                
+            }
+        });
+
+    </script> 
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            const fullName = localStorage.getItem('fullName');
+            if (fullName) {
+            document.querySelector('.profile-name').textContent = fullName;
+         }
+        });
+
+        document.addEventListener("DOMContentLoaded", function() {
+            const showRecordCardButton = document.getElementById('showRecordCardButton');
+            const checkRecordingButton = document.getElementById('checkRecordingButton');
+            const recordCard = document.getElementById('record-card');
+            const historyCard = document.getElementById('history-card');
+
+            // Show Record Card
+            showRecordCardButton.addEventListener('click', function() {
+                recordCard.style.display = 'block';
+                historyCard.style.display = 'none';
+            });
+
+            // Show Chat Card
+            checkRecordingButton.addEventListener('click', function() {
+                historyCard.style.display = 'block';
+                recordCard.style.display = 'none';
+            });
+        });
+    </script>
+    
+    <!-- <script src="assets/vendor/voice_recording/audio-recorder.js"></script> -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-storage.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-auth.js"></script>
+
+</body>
+</html>
