@@ -1,0 +1,169 @@
+import argparse
+import collections
+import numpy as np
+from mpl_toolkits import mplot3d
+import matplotlib.pyplot as plt
+from random import randrange
+import open3d as o3d
+import pyvista as pv
+from gymnasium.spaces import Discrete, Box, Dict
+import re
+
+from copy import copy
+from utils import *
+
+
+class FeasibleEnv():
+    def __init__(self, env_config):
+        self.num_joints = env_config['num_joints']
+        self.target_path = env_config["target_path"]
+        self.dir_name = env_config["dir_name"]
+        # self.scalef = 3.0
+        
+        self.objfile = self._calling_obj(env_config['target_path'], self.dir_name, index=0)
+        self.index = 0
+#       fig = plt.figure()
+        
+    def reset(self):
+        self.points_np, self.points_dict, self.min_dist = self._make_points()
+        self._check_valid_points(self.points_np)
+        self.t = 0
+        self.state = dict()
+        min_idx = find_min_pt(self.points_np)
+        # self.state["avail_idx"] = [i for i in range(self.n_pts ** 3)]
+        self.state["avail_idx"] = self.points_dict.keys()
+        self.state["unavail_idx"] = []
+        self.state["avail_pts"] = np.array([self.points_np[i] for i in self.state["avail_idx"]])
+        self.state["all_pts"] = self.points_np
+        self.state["start_idx"] = find_min_pt(self.points_np)["min_idx"]
+        self.state["min_dist"] = self.min_dist
+
+        self.target_polydata = self._load_obj(self.target_path, com = self.module_com) # (n_points, 3)
+        
+        return self.state
+        
+    def step(self, point_i):
+        self.t += 1
+        state = dict()
+        reward = 0 # TODO: implement reward
+        self.args.j2j_len = self.state["min_dist"]
+        
+        if self.t == 1:
+            self.cur_i = self.state["start_idx"]
+            cur_pt = self.points_dict.pop(self.cur_i)
+            self.state["unavail_idx"].append(self.cur_i)
+            # self.state["avail_idx"] = [i for i in self.points_dict.keys() if np.linalg.norm(selected_pt-self.points_dict[i]) <= self.args.j2j_len and angle_between(selected_pt, self.points_dict[i]) > np.pi/2]
+            self.state["avail_idx"] = [i for i in self.points_dict.keys() if np.linalg.norm(cur_pt-self.points_dict[i]) < self.args.j2j_len*1.05
+                                       and np.linalg.norm(cur_pt-self.points_dict[i]) > (self.args.j2j_len * 0.95)]
+            self.state["avail_pts"] = np.array([self.points_np[i] for i in self.state["avail_idx"]])
+            self.state["all_pts"] = self.points_np
+        else:
+            self.prev_i = self.cur_i
+            self.cur_i = point_i
+            cur_pt = self.points_dict.pop(point_i)
+            prev_pt = self.points_np[self.prev_i]
+            self.state["unavail_idx"].append(point_i)
+            self.state["avail_idx"] = [i for i in self.points_dict.keys() if np.linalg.norm(cur_pt-self.points_dict[i]) < self.args.j2j_len*1.05 
+                                       and np.linalg.norm(cur_pt-self.points_dict[i]) > (self.args.j2j_len * 0.95)
+                                       and angle_between(cur_pt-prev_pt, cur_pt-self.points_dict[i]) >= np.pi/2]
+            self.state["avail_pts"] = np.array([self.points_np[i] for i in self.state["avail_idx"]])
+            self.state["all_pts"] = self.points_np
+        done = True if len(self.state["avail_idx"]) == 0 else False
+
+        # state = dict()
+        # reward is not set up yet
+
+        return self.state, reward, done
+    
+    def render(self):
+        unavail_pts = np.array([self.points_np[i] for i in self.state["unavail_idx"]])
+        ax = plt.axes(projection='3d')
+    
+        if len(self.state["avail_pts"]) > 0:
+            avail_x = self.state["avail_pts"][:, 0]
+            avail_y = self.state["avail_pts"][:, 1]
+            avail_z = self.state["avail_pts"][:, 2]
+            ax.scatter(avail_x, avail_y, avail_z, c='blue')
+        if len(unavail_pts) > 0:
+            unavail_x = unavail_pts[:, 0]
+            unavail_y = unavail_pts[:, 1]
+            unavail_z = unavail_pts[:, 2]
+            ax.scatter(unavail_x, unavail_y, unavail_z, c='red')
+            ax.plot(unavail_x, unavail_y, unavail_z, c='red')
+        
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_zlim(0, 1)
+        
+        plt.savefig(f"render_images/step{self.t}")
+        plt.clf()
+        plt.show()
+    
+    def _check_valid_points(self, points):
+        assert isinstance(points, np.ndarray), "point cloud points must be numpy array."
+        assert len(points.shape) == 2 and points.shape[1] == 3, "point cloud points array shape must be (n, 3)"
+        return True
+    
+    def _load_obj(self, index=0, scale_factor = None):
+
+        if self.index < 0 or self.index >= len(self.objfile):
+            raise ValueError(f"Index out of range. There are {len(self.objfile)} .obj files but index {self.index} was provided.")
+        self.mesh = pv.read(self.objfile[self.index])
+        scaled_mesh = self.mesh.copy()
+        scaled_mesh = scaled_mesh.rotate_x(90)
+
+        sampled_points = scaled_mesh.sample_points_uniform(n=self.num_joints)
+
+        points_np_ori = np.asarray(sampled_points)
+        points_np = np.round(points_np_ori, decimals=4)
+        max_n = np.max(points_np)
+        min_n = np.min(points_np)
+        points_np = (points_np - min_n) / (max_n - min_n)
+
+        points_dict = collections.defaultdict(np.array)
+        for i in range(points_np.shape[0]):
+            points_dict[i] = points_np[i, :]
+
+        return sampled_points
+    
+    def _calling_obj(self, path, dirname, index=0):
+        all_files = []
+        target_dir = os.path.join(path, dirname)
+        if not os.path.isdir(target_dir):
+            raise ValueError(f"The directory {target_dir} does not exist.")
+        for file in sorted(os.listdir(target_dir), key = lambda x: int(re.search(r'(\d+)', x).group() if re.search(r'(\d+)', x) else 0)):
+            if file.endswith('.obj'):
+                all_files.append(os.path.join(target_dir, file))
+        if index < 0 or index >= len(all_files):
+            raise ValueError(f"Index out of range. There are {len(all_files)} .obj files but index {self.index} was provided.")
+        
+        return all_files
+
+
+if __name__ == "__main__":
+    n_joints = 62
+    env_config = {
+        'num_joints': n_joints,
+        'target_path': "/home/milab/Desktop/linux_foldableRobot/Manifold",
+        'dir_name': "donut",
+        # "base_path": "/home/milab/Desktop/linux_foldableRobot",
+        "urdf_path": "/home/milab/Desktop/linux_foldableRobot/urdf/recon_robot_j62/urdf/recon_robot_j62.urdf",
+        "axis": [0,0,1,0,1,0,1,0,1,0,1,0,1,0,0,0,0,0,1,0,1,0,1,0,1,0,1,0,1,0,0,0,0,1,0,1,0,1,0,1,0,1,0,1,0,0,0,0,0,0,1,0,1,0,1,0],
+    }
+    
+    env = FeasibleEnv(env_config)
+    # a, b, _ = env._make_points()
+    state = env.reset()
+    env.render()
+    done = False
+    itr = 0
+    
+    # c = find_min_pt(a)
+    while not done:
+        state, r, d = env.step(random.choice(list(state["avail_idx"])))
+        env.render()
+        itr += 1
+        if d:
+            print("itr =",itr)
+            break
+    
