@@ -149,7 +149,7 @@ class GFNrecon(gymnasium.Env):
         # Initialize ObjectLoader with config
         self.loader = ObjectLoader(config['target_path'], config['dirname'])
         self.loader._calling_obj(config.get('obj_index', 0))  # Load specified .obj file
-        self.loader.obj_to_voxels(config.get('target_voxel_count', 62))
+        self.loader.obj_to_voxels(config.get('target_voxel_count', 63))
         self.voxel_grid = self.loader.get_voxel_info()  # Get voxel positions
         
         # Initialize start position and other variables
@@ -176,7 +176,7 @@ class GFNrecon(gymnasium.Env):
         self.action_space = Discrete(3)
 
         observation_space_low = np.concatenate((
-            np.full((self.n_joints+1) * 3, -np.inf),  # Joint positions (n_joints * 3)
+            np.full(self.n_joints * 3, -np.inf),  # Joint positions (n_joints * 3)
             np.full(3, -np.inf),  # End-effector position (3)
             np.full(len(self.voxel_grid.flatten()), -np.inf),  # Target voxel grid points
             np.full(3, -np.inf),  # Action mask (3)
@@ -184,7 +184,7 @@ class GFNrecon(gymnasium.Env):
         ))
 
         observation_space_high = np.concatenate((
-            np.full((self.n_joints+1)  * 3, np.inf),  # Joint positions (n_joints * 3)
+            np.full(self.n_joints  * 3, np.inf),  # Joint positions (n_joints * 3)
             np.full(3, np.inf),  # End-effector position (3)
             np.full(len(self.voxel_grid.flatten()), np.inf),  # Target voxel grid points
             np.full(3, np.inf),  # Action mask (3)
@@ -214,13 +214,15 @@ class GFNrecon(gymnasium.Env):
 
         # Create the new DH parameter based on the action
         self.new_dh_param = {'a': 1, 'alpha': self.alpha_comb[len(self.visited_positions)], 'd': 0, 'theta': angle}
-        # print(f"len(self.alpha_comb): {len(self.alpha_comb)}")
-        # print(f"len(self.visited_positions): {len(self.visited_positions)}")
 
         # Apply transformations to get new joint positions
         joint_positions = self.transformation(self.dh_params + [self.new_dh_param])
         
         end_effector_position = np.around(joint_positions[-1], 1)
+        
+        # Apply a small tolerance to treat values very close to zero as zero
+        tolerance = 1e-5
+        end_effector_position = np.where(np.abs(end_effector_position) < tolerance, 0, end_effector_position)
         
         # Check for collisions or if the position has been visited
         collision_detected = self.replay_buffer.has_visited(end_effector_position)
@@ -228,6 +230,9 @@ class GFNrecon(gymnasium.Env):
 
         if collision_detected:
             print(f"Collision detected at position {end_effector_position}.")
+            self.visited_positions.append(self.current_position.tolist())
+            self.replay_buffer.add(end_effector_position)
+            
             self.visited_positions.pop()  # Remove last visited position
             self.replay_buffer.visited_positions.pop()  # Remove from replay buffer as well
         else:
@@ -237,6 +242,7 @@ class GFNrecon(gymnasium.Env):
             self.replay_buffer.add(end_effector_position)
             self.render(joint_positions, render)
             self.t += 1
+            print(f"self.visited_positions: {len(self.visited_positions)}")
 
         if len(self.visited_positions) >= len(self.alpha_comb):
             done = True
@@ -247,16 +253,15 @@ class GFNrecon(gymnasium.Env):
 
     def get_state(self):
         # Total number of joint positions we need (n_joints * 3)
-        joint_features_flat = np.zeros((self.n_joints+1) * 3) # Predefine a zero vector
+        joint_features_flat = np.zeros(self.n_joints * 3) # Predefine a zero vector
 
         # Get the actual joint positions from the transformation function
         current_joint_positions = self.transformation(self.dh_params).flatten()  # Shape: (t * 3,), only for t joints
 
+        print(f"Joint features shape: {joint_features_flat.shape}") 
+        print(f"current_joint_positions: {current_joint_positions.shape}") 
         if len(current_joint_positions) > 0:
             joint_features_flat[:len(current_joint_positions)] = current_joint_positions
-
-        # Debugging print
-        # print(f"Joint features shape after padding: {joint_features_flat.shape}")  # Should always be (self.n_joints * 3,)
 
         # End-effector position
         if len(self.transformation(self.dh_params)) == 0:
@@ -337,6 +342,8 @@ class GFNrecon(gymnasium.Env):
         return angles.get(action, 0.0)
     
     def render(self, joint_positions, save_gif = True):
+        # Insert the new row at the first index (index 0)
+        joint_positions = np.insert(joint_positions, 0, self.start_position, axis=0)
         """Render the current path of the agent."""
         x_positions = joint_positions[:, 0]
         y_positions = joint_positions[:, 1]
